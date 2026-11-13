@@ -36,7 +36,7 @@ const unsigned long HTTP_CLIENT_TIMEOUT_MS = 2000UL;
 // Acoustic alert cooldown so the latch auto-resets even without dashboard refreshes
 const unsigned long SOUND_COOLDOWN_MS = 5000UL;
 unsigned long lastSoundAlertMs = 0;
-bool rumoreRilevato = false;
+bool soundDetected = false;
 int lastMotionState = LOW;
 
 // Web dashboard active/standby toggle flag
@@ -70,13 +70,13 @@ void setup() {
   pinMode(SOUNDPIN, INPUT);
 
   delay(2000);
-  Serial.println("Avvio Terminale di Sicurezza (PIR + Acustico)...");
+  Serial.println("Starting Security Terminal (PIR + Acoustic)...");
 
   // Apply the required static IP configuration
   WiFi.config(local_IP, gateway, subnet, primaryDNS);
   WiFi.setHostname("portenta_h7");
 
-  Serial.println("Inizializzazione Rete WiFi...");
+  Serial.println("Initializing Wi-Fi network...");
 
   while (WiFi.begin(ssid, pass) != WL_CONNECTED) {
     delay(500); Serial.print(".");
@@ -84,7 +84,7 @@ void setup() {
   }
 
   Serial.println("\n=== ONLINE ===");
-  Serial.print("IP Assegnato: "); Serial.println(WiFi.localIP());
+  Serial.print("Assigned IP: "); Serial.println(WiFi.localIP());
 
   // Print hardware MAC address to serial console
   byte mac[6];
@@ -102,7 +102,7 @@ void setup() {
   server.begin();
 
   // Send initial startup log to Wazuh
-  sendSyslog("INFO", "Dispositivo IoT avviato e connesso alla rete.");
+  sendSyslog("INFO", "IoT device booted and connected to network.");
 }
 
 void loop() {
@@ -110,19 +110,19 @@ void loop() {
 
   // --- CONTINUOUS MICROPHONE MONITORING (with non-blocking auto-reset cooldown) ---
   const int soundState = digitalRead(SOUNDPIN);
-  if (soundState == HIGH && !rumoreRilevato) {
-    rumoreRilevato = true;
+  if (soundState == HIGH && !soundDetected) {
+    soundDetected = true;
     lastSoundAlertMs = now;
-    sendSyslog("ALERT", "Allarme! Rumore sospetto rilevato nella Sala Server!");
-  } else if (rumoreRilevato && soundState == LOW && (now - lastSoundAlertMs >= SOUND_COOLDOWN_MS)) {
+    sendSyslog("ALERT", "Alert! Suspicious noise detected in Server Room!");
+  } else if (soundDetected && soundState == LOW && (now - lastSoundAlertMs >= SOUND_COOLDOWN_MS)) {
     // Re-arm acoustic trigger automatically even if no browser reloads the dashboard
-    rumoreRilevato = false;
+    soundDetected = false;
   }
 
   // --- CONTINUOUS MOTION MONITORING ---
   int motionState = digitalRead(PIRPIN);
   if (motionState == HIGH && lastMotionState == LOW) {
-    sendSyslog("ALERT", "Intrusione rilevata! Sensore Volumetrico attivato.");
+    sendSyslog("ALERT", "Intrusion detected! Volumetric PIR sensor triggered.");
   }
   lastMotionState = motionState;
 
@@ -144,7 +144,7 @@ void loop() {
       if (!underAttack) {
         underAttack = true;
         digitalWrite(LEDB, HIGH); digitalWrite(LEDR, LOW);
-        sendSyslog("ERROR", "Possibile attacco DoS in corso! Superata la soglia di richieste HTTP.");
+        sendSyslog("ERROR", "Possible DoS attack in progress! HTTP request threshold exceeded.");
       }
     }
 
@@ -169,58 +169,58 @@ void loop() {
 
         if (c == '\n' && currentLineIsBlank) {
           // --- DASHBOARD BUTTON HANDLERS ---
-          if (header.indexOf("GET /spegni") >= 0 && dashboardActive) {
+          if (header.indexOf("GET /off") >= 0 && dashboardActive) {
             dashboardActive = false;
-            sendSyslog("ALERT", "La Dashboard Web e' stata DISATTIVATA manualmente!");
-          } else if (header.indexOf("GET /accendi") >= 0 && !dashboardActive) {
+            sendSyslog("ALERT", "Web Dashboard was manually DISABLED!");
+          } else if (header.indexOf("GET /on") >= 0 && !dashboardActive) {
             dashboardActive = true;
-            sendSyslog("INFO", "La Dashboard Web e' stata RIATTIVATA manualmente!");
+            sendSyslog("INFO", "Web Dashboard was manually RE-ENABLED!");
           }
 
           // --- HTTP SERVER RESPONSES ---
           if (underAttack) {
             client.println("HTTP/1.1 503 Service Unavailable\r\nServer: Portenta-H7-Monitor\r\nContent-Type: text/html\r\nConnection: close\r\n");
             client.println("<html><body style='background-color: #c62828; color: white; text-align: center; font-family: Arial;'>");
-            client.println("<h1 style='font-size: 50px; margin-top: 15%;'>[ ERRORE 503 ]</h1>");
-            client.println("<h2>Superato il limite di richieste!</h2><p>Servizio temporaneamente irraggiungibile.</p></body></html>");
+            client.println("<h1 style='font-size: 50px; margin-top: 15%;'>[ ERROR 503 ]</h1>");
+            client.println("<h2>Request rate limit exceeded!</h2><p>Service temporarily unavailable.</p></body></html>");
 
           } else if (!dashboardActive) {
             client.println("HTTP/1.1 200 OK\r\nServer: Portenta-H7-Monitor\r\nContent-Type: text/html\r\nConnection: close\r\n");
             client.println("<html><body style='background-color: #000000; color: #ff0000; text-align: center; font-family: monospace; padding-top: 15%;'>");
-            client.println("<h1>[!] ACCESSO NEGATO [!]</h1><p>La Dashboard di Sicurezza e' stata messa offline.</p>");
-            client.println("<br><br><a href='/accendi' style='text-decoration:none;'><button style='background-color:#3fb950; color:white; font-weight:bold; padding:15px 30px; border:none; border-radius:5px; cursor:pointer; font-size: 16px;'>RIATTIVA DASHBOARD</button></a>");
+            client.println("<h1>[!] ACCESS DENIED [!]</h1><p>The Security Dashboard has been taken offline.</p>");
+            client.println("<br><br><a href='/on' style='text-decoration:none;'><button style='background-color:#3fb950; color:white; font-weight:bold; padding:15px 30px; border:none; border-radius:5px; cursor:pointer; font-size: 16px;'>RE-ENABLE DASHBOARD</button></a>");
             client.println("</body></html>");
 
           } else {
             client.println("HTTP/1.1 200 OK\r\nServer: Portenta-H7-Monitor\r\nContent-Type: text/html\r\nConnection: close\r\n");
-            client.println("<html><head><meta http-equiv='refresh' content='2'><title>Dashboard Sicurezza</title></head>");
+            client.println("<html><head><meta http-equiv='refresh' content='2'><title>Security Dashboard</title></head>");
             client.println("<body style='font-family: monospace; background-color: #0d1117; color: #58a6ff; padding: 20px;'>");
-            client.println("<h1 style='border-bottom: 1px solid #58a6ff; padding-bottom: 10px;'>TERMINALE DI SICUREZZA - SALA SERVER</h1>");
+            client.println("<h1 style='border-bottom: 1px solid #58a6ff; padding-bottom: 10px;'>SECURITY TERMINAL - SERVER ROOM</h1>");
 
             client.println("<div style='border: 1px solid #30363d; padding: 20px; background-color: #161b22;'>");
-            client.println("<h2 style='color: #c9d1d9;'>RILEVAMENTO INTRUSIONI</h2>");
+            client.println("<h2 style='color: #c9d1d9;'>INTRUSION DETECTION</h2>");
 
             if (motionState == HIGH) {
-              client.println("<p style='font-size: 20px;'><b>[!] Sensore Volumetrico:</b> <span style='background-color: #da3633; color: white; padding: 5px;'>INTRUSIONE RILEVATA! (Movimento)</span></p>");
+              client.println("<p style='font-size: 20px;'><b>[!] Volumetric Sensor:</b> <span style='background-color: #da3633; color: white; padding: 5px;'>INTRUSION DETECTED! (Motion)</span></p>");
             } else {
-              client.println("<p style='font-size: 20px;'><b>[+] Sensore Volumetrico:</b> <span style='color: #3fb950;'>Area Sicura</span></p>");
+              client.println("<p style='font-size: 20px;'><b>[+] Volumetric Sensor:</b> <span style='color: #3fb950;'>Area Secure</span></p>");
             }
 
-            if (rumoreRilevato) {
-              client.println("<p style='font-size: 20px;'><b>[!] Sensore Acustico:</b> <span style='background-color: #da3633; color: white; padding: 5px;'>ALLARME! RUMORE SOSPETTO!</span></p>");
+            if (soundDetected) {
+              client.println("<p style='font-size: 20px;'><b>[!] Acoustic Sensor:</b> <span style='background-color: #da3633; color: white; padding: 5px;'>ALERT! SUSPICIOUS NOISE!</span></p>");
             } else {
-              client.println("<p style='font-size: 20px;'><b>[+] Sensore Acustico:</b> <span style='color: #3fb950;'>Silenzio (Normale)</span></p>");
+              client.println("<p style='font-size: 20px;'><b>[+] Acoustic Sensor:</b> <span style='color: #3fb950;'>Quiet (Normal)</span></p>");
             }
             client.println("</div>");
 
             client.println("<div style='border: 1px solid #30363d; padding: 20px; background-color: #161b22; margin-top: 20px;'>");
-            client.println("<h2 style='color: #c9d1d9;'>TELEMETRIA DI RETE & HIDS</h2>");
-            client.print("<p><b>Uptime Nodo:</b> "); client.print(millis() / 1000); client.println(" sec</p>");
-            client.print("<p><b>Traffico Web (Req/Sec):</b> "); client.print(reqCount); client.println("</p>");
-            client.print("<p><b>Stato HIDS:</b> <span style='color: #3fb950;'>Attivo (Sicuro)</span></p>");
+            client.println("<h2 style='color: #c9d1d9;'>NETWORK TELEMETRY & HIDS</h2>");
+            client.print("<p><b>Node Uptime:</b> "); client.print(millis() / 1000); client.println(" sec</p>");
+            client.print("<p><b>Web Traffic (Req/Sec):</b> "); client.print(reqCount); client.println("</p>");
+            client.print("<p><b>HIDS Status:</b> <span style='color: #3fb950;'>Active (Secure)</span></p>");
 
             client.println("<hr style='border-color: #30363d; margin-top:20px; margin-bottom:20px;'>");
-            client.println("<a href='/spegni' style='text-decoration:none;'><button style='background-color:#da3633; color:white; font-weight:bold; padding:10px 20px; border:none; border-radius:5px; cursor:pointer;'>SPEGNI DASHBOARD</button></a>");
+            client.println("<a href='/off' style='text-decoration:none;'><button style='background-color:#da3633; color:white; font-weight:bold; padding:10px 20px; border:none; border-radius:5px; cursor:pointer;'>DISABLE DASHBOARD</button></a>");
 
             client.println("</div></body></html>");
           }

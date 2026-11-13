@@ -81,7 +81,7 @@ enterprise-iot-red-blue-siem/
 
 ### Hardening Improvements Applied
 - **Credential isolation:** Wi-Fi credentials and infrastructure IPs extracted from source into `arduino_secrets.h`.
-- **Non-blocking acoustic alert reset:** Acoustic detection (`rumoreRilevato`) automatically re-arms after a 5-second cooldown even when no web browser polls the HTTP dashboard.
+- **Non-blocking acoustic alert reset:** Acoustic detection (`soundDetected`) automatically re-arms after a 5-second cooldown even when no web browser polls the HTTP dashboard.
 - **HTTP Slowloris & heap protection:** Bounded HTTP header buffer (`512` bytes), pre-reserved string capacity, 2-second client read timeout, and explicit `HTTP 413 Payload Too Large` rejection.
 
 ---
