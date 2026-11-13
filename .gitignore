@@ -1,0 +1,21 @@
+# Local credentials & lab-specific network parameters (never commit real secrets)
+firmware/Dashboard_Portenta_H7/arduino_secrets.h
+
+# IDE, OS & build artifacts
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.bkp
+~$*
+*.tmp
+
+# LaTeX build artifacts (if compiling docs locally)
+*.aux
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
+*.toc
+
